@@ -1,0 +1,43 @@
+#!/usr/bin/env perl 
+
+=head1 NAME
+
+fxtran-checker
+
+=head1 DESCRIPTION
+
+Apply norm checking to a FORTRAN file. The file will be scanned for ACDC directives, unless
+the C<--method> option is used. C<fxtran-f90> will be invoked.
+
+=head1 SEE ALSO
+
+L<Fxtran::Generate::Checker>, L<fxtran-f90>
+
+=head1 AUTHOR
+
+philippe.marguinaud@meteo.fr
+
+=head1 COPYRIGHT
+
+Meteo-France 2025
+
+=cut
+
+use warnings;
+
+use Data::Dumper;
+
+use FindBin qw ($Bin);
+use lib "$Bin/../lib";
+
+use strict;
+
+use Fxtran::Common;
+use Fxtran::Bt;
+use Fxtran::PATH;
+
+my @F90 = grep { m/\.(?:F90|F)$/o } @ARGV;
+@ARGV = grep { !m/\.(?:F90|F)$/o } @ARGV;
+
+exec (qw (fxtran-f90 --checker --dryrun), @ARGV, qw (-- f90 -c), @F90);
+

@@ -1,0 +1,110 @@
+#!/usr/bin/env perl 
+
+=head1 NAME
+
+fxtran-mergetool
+
+=head1 SYNOPSIS
+
+  $ git mergetool -t fxtran-mergetool
+
+=head1 DESCRIPTION
+
+Wrap kdiff3, meld or vimdiff. Expand the following FORTRAN statements before calling merge utilities:
+
+=over 4
+
+=item
+
+call
+
+=item
+
+associate
+
+=item
+
+subroutine
+
+=back
+
+Repack after merging.
+
+=head1 CONFIGURATION
+
+Add this in your ~/.gitconfig :
+
+  [mergetool "fxtran-mergetool"]
+          cmd = fxtran-mergetool --mergetool kdiff3 "$BASE" "$LOCAL" "$REMOTE" "$MERGED"
+          trustExitCode = true
+
+=head1 AUTHOR
+
+philippe.marguinaud@meteo.fr
+
+=head1 SEE ALSO
+
+L<fxtran|https://github.com/pmarguinaud/fxtran>
+
+=head1 COPYRIGHT
+
+Meteo-France 2025
+
+=cut
+
+use warnings;
+
+use Data::Dumper;
+use Getopt::Long;
+use FileHandle;
+use FindBin qw ($Bin);
+
+use lib "$Bin/../lib";
+
+use strict;
+
+use Fxtran::Common;
+use Fxtran::Bt;
+use Fxtran::Tool;
+use Fxtran::Formatter;
+use Fxtran::MergeTool;
+
+my %opts = qw (simplify-associate-blocks 1);
+my @opts_f = qw (simplify-associate-blocks help);
+my @opts_s = qw (mergetool);
+
+&GetOptions
+(
+  (map { ("$_!", \$opts{$_}) } @opts_f),
+  (map { ("$_=s", \$opts{$_}) } @opts_s),
+);
+
+if ($opts{help} || (scalar (@ARGV) != 4))
+  {
+    exec ('perldoc', $0);
+  }
+
+unless ($opts{mergetool})
+  {
+    for my $prog (qw (kdiff3 meld vimdiff))
+      {
+        next unless (&Fxtran::Tool::which ($prog));
+        $opts{mergetool} = $prog;
+        last;
+      }
+  }
+
+$opts{log} = \&Fxtran::Tool::ll;
+$opts{runcommand} = \&Fxtran::Tool::runCommand;
+
+my ($base, $local, $remote, $merged) = @ARGV;
+
+'Fxtran::Formatter'->prepareFileForMerging ($_, %opts) 
+  for ($base, $local, $remote);
+
+'Fxtran::MergeTool'->merge ($base, $local, $remote, $merged, %opts);
+
+'Fxtran::Formatter'->repackStatementsAfterMerge ($merged, %opts);
+
+exit (0);
+

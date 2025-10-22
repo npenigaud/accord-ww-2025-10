@@ -1,0 +1,273 @@
+#!/usr/bin/env perl
+
+=head1 NAME
+
+fxtran-make
+
+=head1 SYNOPSIS
+
+  $ fxtran-make --config fxtran.conf -- make -j 4
+
+=head1 DESCRIPTION
+
+C<fxtran-make> is a wrapper around C<make>, performing a few tasks before starting the
+actual C<make> command:
+
+=over 4
+
+=item 
+
+Look in the fxtran-acdc C<user-in> directory and see if the corresponding file 
+has been erased from the C<user-out> directory.
+
+The origin file (the file from which the file in C<user-in> is derived), is
+touched so that it be rebuild by C<make>.
+
+=item
+
+Look in the C<user-out> directory and see whether some files have been modified
+(ie compare the file mtime with its time metadata, written at the end of the file).
+
+When a modified file is encountered, then it will be copied to the C<user-in> directory,
+and the origin file will be touched, to trigger recompilation.
+
+=back
+
+The purpose of this processing is to allow the user to edit the result of the pre-processing;
+when a file in C<user-out> is edited, it will be copied to C<user-in> and the compilation
+will start again and take the result in C<user-in>.
+
+If the user want to go back to the normal situation where the file from the git repo is 
+pre-processed and the result of the pre-processing is compiled, then the user just needs
+to remove the file from the C<user-out> directory.
+
+=head1 EXAMPLE
+
+Let us assume that we want to edit F<lascaw_openacc.F90>:
+
+  $ vi build.GPUCC80_O1_NVHPC25.9_CUDA13.0_HPCX2.24/.fxtran/generated/lascaw_openacc.F90
+
+then invoke C<ecbundle> for compiling:
+
+  $ ./ial-bundle \
+  build  \
+  --build-dir build.GPUCC80_O1_NVHPC25.9_CUDA13.0_HPCX2.24 \
+  -j 32 \
+  --arch arch/ecmwf/hpc2020/nvhpc+fxtran+generic/ \
+  --verbose \
+  --build-type FXTRAN_GPUCC80_O1_NVHPC25.9_CUDA13.0_HPCX2.24 \
+  --with-openacc
+
+In principle, C<cmake> should recompile F<lascaw.F90>, and use the file F<lascaw_openacc.F90>
+from C<user-in>.
+
+F<lascaw_openacc.F90> should be in C<user-in> :
+
+  $ ls -lrt build.GPUCC80_O1_NVHPC25.9_CUDA13.0_HPCX2.24/.fxtran/user-in/lascaw_openacc.F90 
+  -rw-r--r-- 1 sor fr 27525 Oct  2 12:53 build.GPUCC80_O1_NVHPC25.9_CUDA13.0_HPCX2.24/.fxtran/user-in/lascaw_openacc.F90
+
+Removing F<lascaw_openacc.F90> from C<build.GPUCC80_O1_NVHPC25.9_CUDA13.0_HPCX2.24/.fxtran/generated/> brings back
+to the initial situation.
+
+=head1 AUTHOR
+
+philippe.marguinaud@meteo.fr
+
+=head1 SEE ALSO
+
+make
+
+=head1 COPYRIGHT
+
+Meteo-France 2025
+
+=cut
+
+use warnings;
+
+use Data::Dumper;
+use FileHandle;
+use File::stat;
+use File::Spec;
+use File::Path;
+use File::Basename;
+use Getopt::Long;
+
+use strict;
+
+sub touch
+{
+  my ($f, %opts) = @_;
+
+  return unless (-f $f);
+
+  my $time = time ();
+
+  print "touch `$f'\n" if ($opts{verbose});
+
+  utime ($time, $time, $f);
+  return $time;
+}
+
+sub getAttributes
+{
+  my $F90 = shift;
+
+  my @text = do { my $fh = 'FileHandle'->new ("<$F90"); <$fh> };
+  
+  # Read attributes at end of file
+  
+  my $attr = {};
+  
+  for my $i (-5 .. -1)
+    {
+      if ($text[$i] =~ m/^\!\s*(\w+)\s*=\s*(\S+)/goms)
+        {
+          $attr->{$1} = $2;
+        }
+    }
+
+  $attr = undef unless (%$attr);
+
+  return ($attr, \@text);
+}
+
+sub make
+{
+  my @make;
+
+  for my $i (0 .. $#ARGV)
+    {
+      if ($ARGV[$i] eq '--')
+        {
+          @make = @ARGV[$i+1..$#ARGV];
+          last;
+        }
+    }
+
+  $ENV{FXTRANMAKELEVEL} = $ENV{FXTRANMAKELEVEL} + 1;
+
+  exec (@make);
+}
+
+sub remove
+{
+  my ($f, %opts) = @_;
+  print "Remove `$f'\n" if ($opts{verbose});
+  unlink ($f);
+}
+
+
+$ENV{FXTRANMAKELEVEL} ||= 0;
+
+&make () if ($ENV{FXTRANMAKELEVEL} > 0);
+
+my %opts;
+
+my ($config, $iconfig);
+
+# Look for config
+
+for (my $i = 0; $i < $#ARGV; $i++)
+  {
+    last if ($ARGV[$i] eq '--');
+    next unless ($ARGV[$i] eq '--config');
+    $iconfig = $i; 
+    $config = $ARGV[$i+1];
+    last;
+  }
+
+if ($config)
+  {
+    die ("Configution file `$config' was not found") 
+      unless (-f $config);
+    $config = 'File::Spec'->rel2abs ($config);
+    $config = do ("$config");
+    if (my $c = $@) 
+      {   
+        die ($c);
+      }   
+
+# Insert config arguments in place of config options
+
+    @ARGV = (@ARGV[0..$iconfig-1], @$config, @ARGV[$iconfig+2..$#ARGV]);
+  }
+
+for my $i (0 .. $#ARGV)
+  {
+    if ($ARGV[$i] eq '--')
+      {
+        last;
+      }
+    elsif ($ARGV[$i] eq '--user-directory-in')
+      {
+        $opts{'user-directory-in'} = $ARGV[$i+1];
+      }
+    elsif ($ARGV[$i] eq '--user-directory-out')
+      {
+        $opts{'user-directory-out'} = $ARGV[$i+1];
+      }
+    elsif ($ARGV[$i] eq '--verbose')
+      {
+        $opts{verbose} = 1;
+      }
+  }
+
+for (qw (user-directory-in user-directory-out))
+  {
+    $opts{$_} = 'File::Spec'->rel2abs ($opts{$_})
+      if ($opts{$_});
+  }
+
+my ($user_out, $user_in) = @opts{qw (user-directory-out user-directory-in)};
+
+(-d $user_in) or &mkpath ($user_in);
+
+# The user has remove the file from user-out/ directory
+# Cleanup and force recompilation (touch orginal file)
+
+for my $F90 (<$user_in/*.F90>)
+  {
+    my $f = &basename ($F90);
+    next if (-f "$user_out/$f");
+
+    next unless (my ($attr) = &getAttributes ($F90));
+
+    &touch ($attr->{from}, %opts); # Touch file in git repo
+
+    &remove ($F90, %opts);
+  }
+
+for my $F90 (<$user_out/*.F90>)
+  {
+    my ($attr, $text) = &getAttributes ($F90);
+
+    next unless ($attr);
+
+    my $st = stat ($F90);
+
+    next unless ($st->mtime > $attr->{time}); # File has been edited by user
+
+    print "$F90\n";
+
+    my $time = &touch ($attr->{from}, %opts); # Touch file in git repo to trigger compilation
+
+    for my $i (-5 .. -1)
+      {
+        last if ($text->[$i] =~ s/^(\!\s*time\s*=\s*)\d+\s*\n/$1$time\n/goms);  # Update time stamp
+      }
+
+    # Write file in user_in directory and set its time to the origin time stamp
+    
+
+    my $f = "$user_in/" . &basename ($F90);
+
+    print "Update `$f'\n" if ($opts{verbose});
+
+    'FileHandle'->new (">$f")->print (join ('', @$text));
+
+    utime ($time, $time, $f);
+  }
+
+&make ();
+

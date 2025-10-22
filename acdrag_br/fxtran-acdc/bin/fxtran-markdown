@@ -1,0 +1,209 @@
+#!/usr/bin/env perl
+
+=head1 NAME
+
+fxtran-markdown
+
+=head1 DESCRIPTION
+
+Generate markdown documentation from POD inline documentation. This documentation is
+meant to be visible on github.com.
+
+A F<README.md> file is also generated; it contains pointers to fxtran-acdc utilities.
+
+=head1 AUTHOR
+
+philippe.marguinaud@meteo.fr
+
+=head1 SEE ALSO
+
+L<perldoc>
+
+=head1 COPYRIGHT
+
+L<fxtran-markdown>
+
+=cut
+
+use warnings;
+
+use Pod::Markdown;
+use FileHandle;
+use File::Path;
+use Data::Dumper;
+use File::Basename;
+use File::Find;
+use File::Basename;
+use File::Spec;
+use FindBin qw ($Bin);
+use lib "$Bin/../lib";
+
+use strict;
+
+sub slurp
+{
+  my $f = shift;
+  return do { local $/ = undef; my $fh = 'FileHandle'->new ("<$f"); <$fh> };
+}
+
+sub desc
+{
+  my $file = shift;
+
+  my $pod = '';
+
+  my $fhin = 'FileHandle'->new ("<$file");
+  
+  my $on = 0;
+  
+  while (my $line = <$fhin>)
+    {
+      if ($line =~ m/^=head1 DESCRIPTION/o)
+        {
+          $on = 1;
+          $line = "=pod\n";
+        }
+      elsif ($on && ($line =~ m/^=head1/o))
+       {
+          $on = 0;
+       }
+  
+      $pod .= $line if ($on);
+    }
+  
+  $pod .= "\n=cut\n";
+
+  return $pod;
+}
+
+chdir ("$Bin/..");
+
+my $fh = 'FileHandle'->new ('>README.md');
+
+$fh->print (<< "EOF");
+# Adaptation des Codes à Divers Calculateurs
+
+![](./images/ACDC.png)
+
+EOF
+
+my @perl;
+
+for my $bin (<$Bin/fxtran-*>)
+  {
+    push @perl, &basename ($bin) 
+      if (&slurp ($bin) =~ m/\n=head1/goms);
+  }
+
+&find ({wanted => sub
+{
+  my $f = $File::Find::name;
+
+  return unless ($f =~ m/\.pm$/o);
+
+  return unless (&slurp ($f) =~ m/\n=head1/goms);
+
+  my $pm = 'File::Spec'->abs2rel ($f, "$Bin/../lib");
+ 
+  for ($pm)
+    {
+      s/\.pm$//o;
+      s,/,::,go;
+    }
+ 
+  push @perl, $pm;
+
+}, no_chdir => 1}, "$Bin/../lib");
+
+
+for my $perl (@perl)
+  {
+    my $file;
+
+    if (-f "bin/$perl")
+      {
+        $file = "bin/$perl";
+      }
+    else
+      {
+        ($file = $perl) =~ s,::,/,go;
+        $file = "lib/$file.pm";
+        die $file unless (-f $file);
+      }
+
+    my ($pp, $markdown);
+
+    my %click;
+
+    if ($file =~ m/^bin/o)
+      {
+        my $md = $perl;
+        $md = "doc/$md.md";
+
+        $fh->print (<< "EOF");
+
+# [$perl ...](./$md)
+
+EOF
+
+        my $pod = $file =~ m/^bin/o ? &desc ($file) : '';
+        $pp = 'Pod::Markdown'->new ();
+        $pp->output_string (\$markdown);
+        $pp->parse_string_document ($pod);
+        $fh->print ($markdown);
+      }
+    else
+      {
+        use Fxtran::Util;
+        &Fxtran::Util::loadModule ($perl);
+        if ($perl->can ('click') && ($perl ne 'click'))
+          {
+            my @method = 'click'->getMethodList ($perl);
+            for my $method (@method)
+              {
+                my $help = 'click'->getMethodHelpAsString ($perl, $method);
+                $click{$method} = "```\n$help```\n";
+              }
+          }
+      }
+
+#   print &Dumper ([$pod, $markdown]);
+
+    $pp = 'Pod::Markdown'->new 
+    ( 
+      perldoc_url_prefix => '',
+    );
+    $pp->output_string (\$markdown);
+    $pp->parse_file ($file);
+
+    $markdown =~ s{\]\((\S+)\)}
+    { 
+      my $link = $1;
+      if (($link =~ s/^url://o) || ($link =~ m/^https:/o))
+        {
+        }
+      else
+        {
+          $link .= ".md";
+        }
+      "]($link)" 
+    }xegoms;
+
+    $markdown =~ s{# NAME\n\n(\S+)}{# NAME\n\n[$1](../$file)}goms;
+   
+    $markdown =~ s{## (\w+)}
+    {   
+      my $n = $1; 
+      my $md = "## $n"; 
+      $md .= "\n\n$click{$n}" if ($click{$n});  
+      $md
+    }egoms;
+
+#   print &Dumper (\$markdown);
+
+    'FileHandle'->new (">doc/$perl.md")->print ($markdown);
+
+  }
+
+$fh->close ();
+

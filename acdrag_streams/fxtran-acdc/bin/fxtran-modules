@@ -1,0 +1,56 @@
+#!/usr/bin/env perl 
+
+=head1 NAME
+
+fxtran-modules
+
+=head1 DESCRIPTION
+
+The purpose of this script is to compile all modules of fxtran-acdc 
+and check they do not contain any errors.
+
+=head1 AUTHOR
+
+philippe.marguinaud@meteo.fr
+
+=head1 COPYRIGHT
+
+Meteo-France 2025
+
+=cut
+
+use warnings;
+
+use Data::Dumper;
+use File::Find;
+use File::Spec;
+use Cwd;
+
+use FindBin qw ($Bin);
+use lib "$Bin/../lib";
+
+use strict;
+
+use Fxtran::Common;
+use Fxtran::Bt;
+
+my $lib = "$Bin/../lib";
+
+$ENV{PERL5LIB} = "$lib:$ENV{PERL5LIB}";
+
+&find ({wanted => sub 
+{
+  return unless (-f (my $pm = $File::Find::name));
+  $pm = 'File::Spec'->abs2rel ($pm, $lib);
+  return unless ($pm =~ s/\.pm$//o);
+  $pm =~ s,/,::,go;
+ 
+  print "$pm\n";
+
+  system ('perl', '-w', -e => "use $pm") 
+   and die ("Loading $pm failed");
+
+}, no_chdir => 1}, $lib);
+
+
+

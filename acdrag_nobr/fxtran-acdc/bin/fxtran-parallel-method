@@ -1,0 +1,75 @@
+#!/usr/bin/env perl
+
+=head1 NAME
+
+fxtran-parallel-method
+
+=head1 DESCRIPTION
+
+The purpose of this script is to extract the list of parallel methods embedded in the ELF 
+sections of an executable.
+
+The lists of possible methods, per ACDC section are saved in C<.fxtran.acdc.*> ELF sections. We use
+C<objdump> and C<objcopy> to extract this information and save it into plain text files.
+
+=head1 AUTHOR
+
+philippe.marguinaud@meteo.fr
+
+=head1 SEE ALSO
+
+L<fxtran-f90>, C<objcopy>, C<objdump>
+
+=head1 COPYRIGHT
+
+Meteo-France 2025
+
+=cut
+
+use warnings;
+
+use Data::Dumper;
+use FileHandle;
+
+use strict;
+
+my $bin = shift;
+
+my @s;
+
+my $objdump = `objdump -h $bin`;
+
+if ($?)
+  {
+    die ("Command `objdump -h $bin' failed");
+  }
+
+for my $line (split (m/\n/o, $objdump))
+  {
+    if ($line =~ m/^\s*\d+\s*(\S+)/o)
+      {
+        push @s, $1;
+      }
+  }
+
+for my $s (@s)
+  {
+    if ($s =~ m/^\.fxtran\.acdc\.parallelmethod\.(\w+)$/o)
+      {
+        my $method = $1;
+
+        my $f = "fxtran.acdc.parallelmethod.$method.txt";
+
+        my @cmd = ('objcopy', '--dump-section',  "$s=$f", $bin);
+        system (@cmd)
+          and die ("Command `@cmd' failed\n");
+
+        my $data = do { my $fh = 'FileHandle'->new ("<$f"); local $/ = undef; <$fh> };
+        $data =~ s/\0//goms;
+
+        'FileHandle'->new (">$f")->print ($data);
+      }
+  }
+
+
+

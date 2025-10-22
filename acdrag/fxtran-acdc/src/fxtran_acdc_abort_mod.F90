@@ -1,0 +1,23 @@
+MODULE FXTRAN_ACDC_ABORT_MOD
+
+!
+! Copyright 2025 Meteo-France
+! All rights reserved
+! philippe.marguinaud@meteo.fr
+!
+
+CONTAINS
+
+SUBROUTINE FXTRAN_ACDC_ABORT (CDMESS)
+
+CHARACTER (LEN=*) :: CDMESS
+
+!$acc routine (FXTRAN_ACDC_ABORT) seq
+
+PRINT *, " FXTRAN_ACDC_ABORT "
+PRINT *, CDMESS
+STOP
+
+END SUBROUTINE
+
+END MODULE
