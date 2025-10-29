@@ -17,11 +17,4 @@ cpan install -f XML::SAX::Exception
 cpan install -f XML::XPath::Parser 
 cpan install -f XML::Parser 
 
-git clone https://github.com/pmarguinaud/fxtran
-cd fxtran
-make -j4
-cd perl5
-perl Makefile.PL
-make -j4
-make install
 
